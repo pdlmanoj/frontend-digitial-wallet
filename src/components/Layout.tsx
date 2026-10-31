@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react'
-import { NavLink, Outlet, useLocation, useNavigate } from 'react-router-dom'
+import { Navigate, NavLink, Outlet, useLocation, useNavigate } from 'react-router-dom'
 import {
   ArrowDownToLine,
   ArrowLeftRight,
@@ -10,11 +10,11 @@ import {
   Send,
   ShieldCheck,
   UserRound,
-  Users,
   Wallet as WalletIcon,
   X,
 } from 'lucide-react'
 import { useAuth } from '../auth/auth'
+import { useProfileImage } from '../lib/useProfileImage'
 import { Spinner } from './ui'
 
 interface NavItem {
@@ -40,8 +40,6 @@ const accountNav: NavItem[] = [
   { to: '/security', label: 'Security', icon: ShieldCheck },
   { to: '/profile', label: 'Profile', icon: UserRound },
 ]
-
-const adminNav: NavItem[] = [{ to: '/admin/users', label: 'Users', icon: Users }]
 
 function Brand() {
   return (
@@ -89,6 +87,7 @@ function NavGroup({ items, title }: { items: NavItem[]; title: string }) {
 
 function UserFooter({ onNavigate }: { onNavigate?: () => void }) {
   const { user, logout } = useAuth()
+  const { image } = useProfileImage()
   const navigate = useNavigate()
 
   const handleLogout = () => {
@@ -103,8 +102,16 @@ function UserFooter({ onNavigate }: { onNavigate?: () => void }) {
   return (
     <div className="border-t border-slate-200 p-3">
       <div className="flex items-center gap-3 rounded-lg px-2 py-2">
-        <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-slate-200 text-sm font-semibold text-slate-700">
-          {initial}
+        <div className="flex h-9 w-9 shrink-0 items-center justify-center overflow-hidden rounded-full bg-slate-200 text-sm font-semibold text-slate-700">
+          {image ? (
+            <img
+              src={image.image_url}
+              alt={`${user.name} profile`}
+              className="h-full w-full object-cover"
+            />
+          ) : (
+            initial
+          )}
         </div>
         <div className="min-w-0 flex-1">
           <p className="truncate text-sm font-medium text-slate-900">{user.name}</p>
@@ -127,19 +134,17 @@ function UserFooter({ onNavigate }: { onNavigate?: () => void }) {
 }
 
 function Navigation() {
-  const { user } = useAuth()
   return (
     <nav className="flex flex-1 flex-col gap-6 overflow-y-auto px-3 py-5">
       <NavGroup items={primaryNav} title="Overview" />
       <NavGroup items={moneyNav} title="Money" />
       <NavGroup items={accountNav} title="Account" />
-      {user?.is_admin && <NavGroup items={adminNav} title="Admin" />}
     </nav>
   )
 }
 
 export function Layout() {
-  const { status } = useAuth()
+  const { user, status } = useAuth()
   const location = useLocation()
   const [mobileOpen, setMobileOpen] = useState(false)
 
@@ -160,6 +165,12 @@ export function Layout() {
         <Spinner /> Loading session…
       </div>
     )
+  }
+
+  // Admin accounts cannot call the regular user endpoints (get_current_user
+  // rejects them), so keep them inside the admin section.
+  if (user?.is_admin && !location.pathname.startsWith('/admin')) {
+    return <Navigate to="/admin" replace />
   }
 
   return (

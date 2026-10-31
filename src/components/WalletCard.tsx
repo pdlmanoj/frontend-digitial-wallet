@@ -55,7 +55,7 @@ export function WalletCard({
               Available balance
             </p>
             <p className="mt-1 text-3xl font-bold tracking-tight text-slate-900">
-              {formatMoney(wallet.amount, wallet.currency)}
+              {formatMoney(wallet.balance, wallet.currency)}
             </p>
             <div className="mt-1.5 flex flex-wrap items-center gap-2">
               <WalletStatusBadge active={wallet.is_active} />

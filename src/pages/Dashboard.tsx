@@ -1,4 +1,4 @@
-import { Link } from 'react-router-dom'
+import { Link, Navigate } from 'react-router-dom'
 import {
   ArrowLeftRight,
   ArrowRight,
@@ -8,9 +8,9 @@ import {
 } from 'lucide-react'
 import { useAuth } from '../auth/auth'
 import { useWalletBalance } from '../lib/useWallet'
-import { getActivity } from '../lib/activity'
+import { useTransactions } from '../lib/useTransactions'
 import { formatMoney, greeting } from '../lib/format'
-import { Card, PageHeader, Spinner } from '../components/ui'
+import { Alert, Card, PageHeader, Spinner } from '../components/ui'
 import { WalletCard } from '../components/WalletCard'
 import { WalletStatusBadge } from '../components/badges'
 import { TransactionList } from '../components/TransactionList'
@@ -44,15 +44,21 @@ function StatCard({
   )
 }
 
-export function Dashboard() {
+function UserDashboard() {
   const { user, status } = useAuth()
   const { wallet, loading } = useWalletBalance()
-  const activity = getActivity()
-  const recent = activity.slice(0, 6)
+  const {
+    transactions,
+    pagination,
+    loading: transactionsLoading,
+    error: transactionsError,
+  } = useTransactions(1, 5)
 
   if (status !== 'authenticated' || !user) return null
 
   const firstName = user.name.split(' ')[0]
+  const totalTransactions = pagination?.total ?? 0
+  const currency = wallet?.currency ?? 'NPR'
 
   return (
     <div>
@@ -67,7 +73,7 @@ export function Dashboard() {
         <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-4">
           <StatCard
             label="Total balance"
-            value={loading ? <Spinner className="h-5 w-5" /> : wallet ? formatMoney(wallet.amount, wallet.currency) : '—'}
+            value={loading ? <Spinner className="h-5 w-5" /> : wallet ? formatMoney(wallet.balance, wallet.currency) : '—'}
             icon={<WalletIcon className="h-5 w-5" />}
             hint={wallet ? `${wallet.currency} currency` : 'No wallet yet'}
           />
@@ -92,16 +98,20 @@ export function Dashboard() {
             hint="Active wallets can transact"
           />
           <StatCard
-            label="Recent activity"
-            value={activity.length}
+            label="Transactions"
+            value={transactionsLoading ? <Spinner className="h-5 w-5" /> : totalTransactions}
             icon={<ArrowLeftRight className="h-5 w-5" />}
-            hint="This browser session"
+            hint="Deposits and withdrawals"
           />
         </div>
 
         <Card
           title="Recent transactions"
-          subtitle={`${recent.length} recorded in this browser session`}
+          subtitle={
+            transactionsLoading
+              ? 'Loading history…'
+              : `${totalTransactions} transaction${totalTransactions === 1 ? '' : 's'} in total`
+          }
           actions={
             <Link
               to="/transactions"
@@ -111,16 +121,39 @@ export function Dashboard() {
             </Link>
           }
         >
-          <TransactionList
-            transactions={recent}
-            emptyAction={
-              <Link to="/deposit" className="text-sm font-semibold text-emerald-600 hover:text-emerald-700">
-                Make your first deposit
-              </Link>
-            }
-          />
+          {transactionsError ? (
+            <div className="px-5 py-5">
+              <Alert tone="error" title="Could not load transactions">
+                {transactionsError}
+              </Alert>
+            </div>
+          ) : transactionsLoading ? (
+            <div className="flex h-40 items-center justify-center gap-2 text-sm text-slate-500">
+              <Spinner /> Loading transactions…
+            </div>
+          ) : (
+            <TransactionList
+              transactions={transactions}
+              currency={currency}
+              emptyAction={
+                <Link to="/deposit" className="text-sm font-semibold text-emerald-600 hover:text-emerald-700">
+                  Make your first deposit
+                </Link>
+              }
+            />
+          )}
         </Card>
       </div>
     </div>
   )
+}
+
+export function Dashboard() {
+  const { user } = useAuth()
+
+  if (user?.is_admin) {
+    return <Navigate to="/admin" replace />
+  }
+
+  return <UserDashboard />
 }

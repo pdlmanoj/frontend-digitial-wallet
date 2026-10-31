@@ -1,39 +1,52 @@
-import { useEffect, useState } from 'react'
+import { useCallback, useEffect, useState } from 'react'
 import { Link } from 'react-router-dom'
 import { Eye, RefreshCw, ShieldCheck, Users } from 'lucide-react'
-import { userApi } from '../../lib/api'
-import type { AdminUser } from '../../types'
+import { adminApi } from '../../lib/api'
+import type { AdminUser, PaginatedResponse } from '../../types'
 import { capitalize } from '../../lib/format'
-import { Alert, Badge, Card, EmptyState, PageHeader, Spinner } from '../../components/ui'
+import {
+  Alert,
+  Badge,
+  Card,
+  EmptyState,
+  PageHeader,
+  Pagination,
+  Spinner,
+} from '../../components/ui'
 import { WalletStatusBadge } from '../../components/badges'
 
+const PAGE_SIZE = 10
+
 export function AdminUsers() {
-  const [users, setUsers] = useState<AdminUser[] | null>(null)
+  const [page, setPage] = useState(1)
+  const [data, setData] = useState<PaginatedResponse<AdminUser> | null>(null)
   const [error, setError] = useState<string | null>(null)
   const [loading, setLoading] = useState(true)
 
-  const load = async () => {
+  const load = useCallback(async () => {
     setLoading(true)
     setError(null)
     try {
-      setUsers(await userApi.listAllUsers())
+      setData(await adminApi.listUsers(page, PAGE_SIZE))
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Failed to load users.')
-      setUsers(null)
+      setData(null)
     } finally {
       setLoading(false)
     }
-  }
+  }, [page])
 
   useEffect(() => {
     void load()
-  }, [])
+  }, [load])
+
+  const users = data?.results ?? []
 
   return (
     <div>
       <PageHeader
-        title="Admin — Users"
-        subtitle="Every registered account. Source: /user/users (admin)."
+        title="Users"
+        subtitle="Every registered customer account."
         actions={
           <button
             type="button"
@@ -53,12 +66,19 @@ export function AdminUsers() {
         </div>
       )}
 
-      <Card>
+      <Card
+        title="All accounts"
+        subtitle={
+          data
+            ? `${data.pagination.total} user${data.pagination.total === 1 ? '' : 's'} · Source: GET /manage/users`
+            : 'Source: GET /manage/users'
+        }
+      >
         {loading ? (
           <div className="flex h-48 items-center justify-center gap-2 text-sm text-slate-500">
             <Spinner /> Loading users…
           </div>
-        ) : !users || users.length === 0 ? (
+        ) : users.length === 0 ? (
           <EmptyState
             icon={<Users className="h-6 w-6" />}
             title="No users yet"
@@ -122,6 +142,16 @@ export function AdminUsers() {
               </tbody>
             </table>
           </div>
+        )}
+
+        {data && (
+          <Pagination
+            page={data.pagination.page}
+            totalPages={data.pagination.total_pages}
+            total={data.pagination.total}
+            onPageChange={setPage}
+            disabled={loading}
+          />
         )}
       </Card>
     </div>

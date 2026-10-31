@@ -3,8 +3,7 @@ import { Send } from 'lucide-react'
 import { Alert, Button, Card, Input, PageHeader } from '../components/ui'
 import { WalletCard } from '../components/WalletCard'
 import { transactionApi } from '../lib/api'
-import { addActivity } from '../lib/activity'
-import { extractReceiverName, formatMoney, isValidPhone } from '../lib/format'
+import { formatMoney, isValidPhone } from '../lib/format'
 import { useWalletBalance } from '../lib/useWallet'
 import type { SubmitResult } from '../components/MoneyForm'
 
@@ -67,14 +66,6 @@ export function SendMoney() {
     setResult(null)
     try {
       const response = await transactionApi.sendMoney(review.phone, review.amount)
-      const name = extractReceiverName(response.msg)
-      addActivity({
-        type: 'send',
-        amount: String(review.amount),
-        currency: 'NPR',
-        status: 'success',
-        note: name ? `Sent to ${name}` : `Sent to ${review.phone}`,
-      })
       setResult({ message: response.msg, status: 'success' })
       setReview(null)
       setPhone('')
@@ -97,8 +88,8 @@ export function SendMoney() {
 
         {!wallet.is_active && (
           <Alert tone="warning" title="Wallet inactive">
-            Your wallet is not active, so the API will reject transfers. Activation is an
-            admin route and can't be done from this interface.
+            Your wallet is not active, so the API will reject transfers. Please contact an
+            administrator to reactivate it.
           </Alert>
         )}
 
@@ -165,7 +156,7 @@ export function SendMoney() {
                   value={amount}
                   onChange={(event) => setAmount(event.target.value)}
                   error={amountError ?? undefined}
-                  hint={`Available balance: ${formatMoney(wallet.amount, wallet.currency)}`}
+                  hint={`Available balance: ${formatMoney(wallet.balance, wallet.currency)}`}
                 />
                 <Button type="submit" className="w-full">
                   <Send className="h-4 w-4" />

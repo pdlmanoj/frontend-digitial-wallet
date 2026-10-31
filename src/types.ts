@@ -5,7 +5,21 @@ export type Gender = 'male' | 'female' | 'other'
 export type UserStatus = 'active' | 'inactive' | 'password_lock'
 
 export type TxStatus = 'pending' | 'success' | 'failed'
-export type TxType = 'deposit' | 'withdraw' | 'send'
+export type TxType = 'deposit' | 'withdraw'
+
+// apps/common/pagination/schema.py -> PaginationSchema
+export interface Pagination {
+  page: number
+  page_size: number
+  total: number
+  total_pages: number
+}
+
+// apps/common/pagination/schema.py -> PaginatedResponseSchema[T]
+export interface PaginatedResponse<T> {
+  pagination: Pagination
+  results: T[]
+}
 
 // GET /auth/me -> UserProfileResponseSchema
 export interface UserProfile {
@@ -21,16 +35,17 @@ export interface UserProfile {
   wallet: { is_active: boolean } | null
 }
 
-// GET /user/users / GET /user/{id} -> UserResponseSchema (profile + id)
+// GET /manage/{id}/details -> UserResponseSchema (profile + id + timestamps)
 export interface AdminUser extends UserProfile {
   id: string
+  created_at: string
+  updated_at: string
 }
 
-// GET /wallet/{id} -> WalletListReadSchema (admin, keyed by USER id)
-// Balance again appears under "amount", like /wallet/check-balance.
+// GET /manage/{id} -> WalletListReadSchema (admin, keyed by USER id)
 export interface AdminWallet {
   currency: string
-  amount: string
+  balance: string
   user_id: string
   is_active: boolean
 }
@@ -55,42 +70,43 @@ export type LoginResponse = LoginTokenResponse | LoginTwoFactorResponse
 // POST /auth/refresh
 export interface RefreshResponse {
   access_token: string
-  token_type: string
+  refresh_token: string
+  type: string
 }
 
 // GET /wallet/check-balance -> AvailableBalanceReadSchema
-// NOTE: the response key for the balance is "amount", not "balance".
-// This mirrors the backend's Pydantic model (field `amount` with
-// validation_alias `balance`).
 export interface WalletBalance {
   currency: string
-  amount: string
+  balance: string
   hold_amount: string
   is_active: boolean
 }
 
 // POST /wallet/create request -> CreateWalletFormSchema
-// NOTE: the accepted body key is "balance" (Pydantic validation alias).
 export interface CreateWalletRequest {
   currency: string | null
   balance: number
 }
 
+// GET /transaction/recent-transaction -> PaginatedResponseSchema[RecentTransactionSchema]
+export interface ServerTransaction {
+  id: string
+  amount: string
+  type: TxType
+  status: TxStatus
+  reference_id: string
+  created_at: string
+}
+
+// GET /user/profile-image -> presigned S3 URL
+export interface ProfileImageResponse {
+  image_url: string
+  expires_in: string
+}
+
+export type ProfileImage = ProfileImageResponse | null
+
 // Simple message responses used by most mutating endpoints.
 export interface MessageResponse {
   msg: string
-}
-
-// POST /auth/verify-2fa response == LoginTokenResponse.
-
-// A transaction record we keep locally in the browser, because the API
-// does not (yet) expose transaction history.
-export interface LocalTransaction {
-  id: string
-  type: TxType
-  amount: string
-  currency: string
-  status: 'success' | 'failed'
-  createdAt: string
-  note: string
 }

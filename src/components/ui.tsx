@@ -1,5 +1,5 @@
 import { useEffect, useId, type ReactNode, type SelectHTMLAttributes, type InputHTMLAttributes, type ButtonHTMLAttributes } from 'react'
-import { X } from 'lucide-react'
+import { ChevronLeft, ChevronRight, X } from 'lucide-react'
 
 export function Spinner({ className = 'h-4 w-4' }: { className?: string }) {
   return (
@@ -280,6 +280,48 @@ export function Modal({
           </button>
         </header>
         <div className="px-5 py-5">{children}</div>
+      </div>
+    </div>
+  )
+}
+
+export function Pagination({
+  page,
+  totalPages,
+  total,
+  onPageChange,
+  disabled = false,
+}: {
+  page: number
+  totalPages: number
+  total: number
+  onPageChange: (page: number) => void
+  disabled?: boolean
+}) {
+  if (totalPages <= 1) return null
+
+  return (
+    <div className="flex flex-wrap items-center justify-between gap-3 border-t border-slate-100 px-5 py-3">
+      <p className="text-xs text-slate-500">
+        Page {page} of {totalPages} · {total} total
+      </p>
+      <div className="flex gap-2">
+        <button
+          type="button"
+          onClick={() => onPageChange(page - 1)}
+          disabled={disabled || page <= 1}
+          className="inline-flex items-center gap-1 rounded-lg border border-slate-200 px-2.5 py-1.5 text-xs font-semibold text-slate-600 transition hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-50"
+        >
+          <ChevronLeft className="h-3.5 w-3.5" /> Previous
+        </button>
+        <button
+          type="button"
+          onClick={() => onPageChange(page + 1)}
+          disabled={disabled || page >= totalPages}
+          className="inline-flex items-center gap-1 rounded-lg border border-slate-200 px-2.5 py-1.5 text-xs font-semibold text-slate-600 transition hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-50"
+        >
+          Next <ChevronRight className="h-3.5 w-3.5" />
+        </button>
       </div>
     </div>
   )

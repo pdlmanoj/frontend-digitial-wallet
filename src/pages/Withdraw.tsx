@@ -2,19 +2,12 @@ import { ArrowUpFromLine } from 'lucide-react'
 import { AmountForm, type SubmitResult } from '../components/MoneyForm'
 import { PageHeader } from '../components/ui'
 import { transactionApi } from '../lib/api'
-import { addActivity, statusFromMessage } from '../lib/activity'
+import { statusFromMessage } from '../lib/format'
 
 export function Withdraw() {
   const handleWithdraw = async (amount: number): Promise<SubmitResult> => {
     const response = await transactionApi.withdraw(amount)
     const status = statusFromMessage(response.msg)
-    addActivity({
-      type: 'withdraw',
-      amount: String(amount),
-      currency: 'NPR',
-      status,
-      note: status === 'success' ? 'Withdrawal completed' : 'Withdrawal rejected by gateway',
-    })
     return { message: response.msg, status }
   }
 

@@ -81,8 +81,8 @@ export function AmountForm({
       <div className="space-y-6">
         <WalletCard wallet={wallet} loading={false} />
         <Alert tone="warning" title="Wallet inactive">
-          Your wallet is not active, so transactions are blocked by the API. Wallet
-          activation is an admin route, so you can't enable it from this interface.
+          Your wallet is not active, so transactions are blocked by the API. Please
+          contact an administrator to reactivate it.
         </Alert>
       </div>
     )
@@ -98,7 +98,7 @@ export function AmountForm({
             <span className="text-slate-400">{icon}</span>
             Current balance:{' '}
             <span className="font-semibold text-slate-900">
-              {formatMoney(wallet.amount, wallet.currency)}
+              {formatMoney(wallet.balance, wallet.currency)}
             </span>
           </div>
 
@@ -138,11 +138,6 @@ export function AmountForm({
               )}
             </Button>
           </form>
-
-          <p className="mt-4 text-xs text-slate-400">
-            This endpoint simulates a payment gateway and randomly succeeds or fails —
-            that's how the backend is built.
-          </p>
         </div>
       </Card>
     </div>
