@@ -8,8 +8,10 @@ import { randomUUID } from 'node:crypto'
 // without Postgres/Redis. It mirrors the real request/response contract:
 //   - /auth/login expects URL-encoded username/password (OAuth2 form)
 //   - /wallet/create accepts balance under the JSON key "balance"
-//   - /wallet/check-balance returns the balance under the key "amount"
+//   - /wallet/check-balance returns AvailableBalanceReadSchema (balance/currency/...)
 //   - deposit/withdraw randomly succeed or fail; send-money succeeds
+//   - /transaction/recent-transaction is paginated
+//   - admin routes live under /manage and are paginated where applicable
 //
 // Start it with:  npm run mock   (listens on http://localhost:8000)
 // Point the frontend at it with VITE_API_BASE_URL (it's the default base URL).
@@ -19,8 +21,43 @@ const PORT = process.env.MOCK_PORT || 8000
 
 const users = new Map()
 const wallets = new Map()
+const transactions = []
+let transactionSeq = 0
 let twoFactorTotp = '123456' // in the mock, any 6 digits also work
 const twoFactorPending = new Map()
+
+function makeReferenceId() {
+  transactionSeq += 1
+  return `TRAN${Date.now()}${String(transactionSeq).padStart(6, '0')}`
+}
+
+function recordTransaction(wallet, type, amount, status = 'success') {
+  transactions.unshift({
+    id: randomUUID(),
+    wallet_id: wallet.id,
+    amount: Number(amount),
+    type,
+    status,
+    reference_id: makeReferenceId(),
+    created_at: new Date().toISOString(),
+  })
+}
+
+function paginate(items, page, pageSize) {
+  const total = items.length
+  const totalPages = Math.max(1, Math.ceil(total / pageSize))
+  const safePage = Math.min(Math.max(1, page), totalPages)
+  const start = (safePage - 1) * pageSize
+  return {
+    pagination: {
+      page: safePage,
+      page_size: pageSize,
+      total,
+      total_pages: totalPages,
+    },
+    results: items.slice(start, start + pageSize),
+  }
+}
 
 function seed() {
   const demoId = randomUUID()
@@ -93,6 +130,11 @@ function seed() {
 }
 seed()
 
+// Record the seeded opening balances as initial deposits.
+for (const wallet of wallets.values()) {
+  recordTransaction(wallet, 'deposit', wallet.balance)
+}
+
 const baseUrl = `http://127.0.0.1:${PORT}`
 
 function sendJson(res, status, body) {
@@ -133,6 +175,40 @@ async function readForm(req) {
   return Object.fromEntries(params.entries())
 }
 
+function readRawBody(req, limit = 3 * 1024 * 1024) {
+  return new Promise((resolve, reject) => {
+    const chunks = []
+    let size = 0
+    req.on('data', (chunk) => {
+      size += chunk.length
+      if (size > limit) reject(new Error('body too large'))
+      else chunks.push(chunk)
+    })
+    req.on('end', () => resolve(Buffer.concat(chunks)))
+    req.on('error', reject)
+  })
+}
+
+function parseImageUpload(body, contentType) {
+  const match = /boundary=(?:"([^"]+)"|([^;]+))/i.exec(contentType || '')
+  const boundary = match?.[1] || match?.[2]
+  if (!boundary) return null
+
+  const raw = body.toString('latin1')
+  for (const part of raw.split(`--${boundary}`)) {
+    const headerEnd = part.indexOf('\r\n\r\n')
+    if (headerEnd === -1) continue
+    const headers = part.slice(0, headerEnd)
+    if (!/name="image"/i.test(headers)) continue
+
+    let content = part.slice(headerEnd + 4)
+    if (content.endsWith('\r\n')) content = content.slice(0, -2)
+    const type = /content-type:\s*([^\r\n]+)/i.exec(headers)?.[1]?.trim() || ''
+    return { data: Buffer.from(content, 'latin1'), type }
+  }
+  return null
+}
+
 function bearerToken(req) {
   const header = req.headers.authorization || ''
   return header.startsWith('Bearer ') ? header.slice(7) : null
@@ -155,7 +231,7 @@ function decodeToken(token) {
   }
 }
 
-function parseAuth(req) {
+function parseAuth(req, { allowAdmin = false } = {}) {
   const token = bearerToken(req)
   if (!token) return { error: 'You must be authenticated to perform this action.' }
   const payload = decodeToken(token)
@@ -164,11 +240,14 @@ function parseAuth(req) {
   }
   const user = users.get(payload.email)
   if (!user) return { error: 'User not found.' }
+  if (user.is_admin && !allowAdmin) {
+    return { error: 'You are not permitted to perfom this action.' }
+  }
   return { user }
 }
 
 function parseAdmin(req) {
-  const auth = parseAuth(req)
+  const auth = parseAuth(req, { allowAdmin: true })
   if (auth.error) return auth
   if (!auth.user.is_admin) {
     return { error: 'You are not permitted to perform this action.' }
@@ -186,6 +265,7 @@ function walletForUser(user) {
 
 function publicUser(u) {
   const wallet = walletForUser(u)
+  const now = new Date().toISOString()
   return {
     id: u.id,
     name: u.name,
@@ -197,6 +277,8 @@ function publicUser(u) {
     is_admin: u.is_admin,
     is_2fa_enable: u.is_2fa_enable,
     wallet: wallet ? { is_active: wallet.is_active } : null,
+    created_at: u.created_at || now,
+    updated_at: u.updated_at || now,
   }
 }
 
@@ -247,7 +329,7 @@ const server = http.createServer(async (req, res) => {
 
   if (path === '/auth/refresh' && method === 'POST') {
     const body = await readJson(req)
-    const payload = decodeToken(body.refresh_token)
+    const payload = decodeToken(body.token)
     if (!payload || !payload.refresh) {
       sendJson(res, 401, { detail: 'Could not validate refresh token' })
       return
@@ -259,8 +341,19 @@ const server = http.createServer(async (req, res) => {
     }
     sendJson(res, 200, {
       access_token: makeToken({ email: user.email }, 10 * 60),
-      token_type: 'Bearer',
+      refresh_token: makeToken({ email: user.email, refresh: true }, 24 * 3600),
+      type: 'bearer',
     })
+    return
+  }
+
+  if (path === '/auth/logout' && method === 'POST') {
+    const auth = parseAuth(req, { allowAdmin: true })
+    if (auth.error) {
+      sendJson(res, 401, { detail: auth.error })
+      return
+    }
+    sendJson(res, 200, { msg: 'Logout Successfully' })
     return
   }
 
@@ -289,7 +382,7 @@ const server = http.createServer(async (req, res) => {
   }
 
   if (path === '/auth/me' && method === 'GET') {
-    const auth = parseAuth(req)
+    const auth = parseAuth(req, { allowAdmin: true })
     if (auth.error) {
       sendJson(res, 401, { detail: auth.error })
       return
@@ -402,6 +495,7 @@ const server = http.createServer(async (req, res) => {
       status: 'active',
       is_admin: false,
       is_2fa_enable: false,
+      profile_image: null,
     })
     sendJson(res, 201, { ...users.get(email), password: undefined })
     return
@@ -431,31 +525,120 @@ const server = http.createServer(async (req, res) => {
     return
   }
 
-  // --- admin: user list -------------------------------------------------
-  if (path === '/user/users' && method === 'GET') {
+  if (path === '/user/profile-image' && method === 'POST') {
+    const auth = parseAuth(req, { allowAdmin: true })
+    if (auth.error) {
+      sendJson(res, 401, { detail: auth.error })
+      return
+    }
+    const body = await readRawBody(req)
+    const upload = parseImageUpload(body, req.headers['content-type'])
+    if (!upload) {
+      sendError(res, 400, 'user.profile_image.invalid', 'No image was uploaded.')
+      return
+    }
+    if (!['image/png', 'image/jpeg'].includes(upload.type)) {
+      sendError(res, 415, 'user.unsupported_format_provided', 'Only .png or .jpeg format allowed')
+      return
+    }
+    if (upload.data.length > 2 * 1024 * 1024) {
+      sendError(res, 413, 'user.file_max_size_exceeded', 'The uploaded image size exceeded max limit of 2 MB.')
+      return
+    }
+    auth.user.profile_image = `data:${upload.type};base64,${upload.data.toString('base64')}`
+    sendJson(res, 200, { msg: 'Your profile image uploaded successfully.' })
+    return
+  }
+
+  if (path === '/user/profile-image' && method === 'GET') {
+    const auth = parseAuth(req, { allowAdmin: true })
+    if (auth.error) {
+      sendJson(res, 401, { detail: auth.error })
+      return
+    }
+    if (!auth.user.profile_image) {
+      sendError(res, 404, 'user.profile_image.not_found', 'No profile image found. Please upload an image first.')
+      return
+    }
+    sendJson(res, 200, { image_url: auth.user.profile_image, expires_in: '3 minutes' })
+    return
+  }
+
+  // --- admin: paginated user list ---------------------------------------
+  if (path === '/manage/users' && method === 'GET') {
     const auth = parseAdmin(req)
     if (auth.error) {
       sendJson(res, 401, { detail: auth.error })
       return
     }
-    sendJson(res, 200, [...users.values()].map(publicUser))
+    const page = Number(url.searchParams.get('page') || 1)
+    const pageSize = Math.min(Number(url.searchParams.get('page_size') || 5), 50)
+    const result = paginate([...users.values()].map(publicUser), page, pageSize)
+    sendJson(res, 200, result)
     return
   }
 
-  // GET /user/{id} is public in the real backend (no auth dependency).
-  const userByIdMatch = path.match(/^\/user\/([^/]+)$/)
-  if (userByIdMatch && method === 'GET') {
-    const user = findUserById(userByIdMatch[1])
+  const userDetailsMatch = path.match(/^\/manage\/([^/]+)\/details$/)
+  if (userDetailsMatch && method === 'GET') {
+    const auth = parseAdmin(req)
+    if (auth.error) {
+      sendJson(res, 401, { detail: auth.error })
+      return
+    }
+    const user = findUserById(userDetailsMatch[1])
     if (!user) {
-      sendError(res, 400, 'get_user.user_not_found', 'User not found')
+      sendError(res, 404, 'user.not_found', 'User not found')
       return
     }
     sendJson(res, 200, publicUser(user))
     return
   }
 
-  // --- admin: wallet by user + activate/deactivate ----------------------
-  const walletActionMatch = path.match(/^\/wallet\/(activate|deactivate)\/([^/]+)$/)
+  const inactiveMatch = path.match(/^\/manage\/inactive-user\/([^/]+)$/)
+  if (inactiveMatch && method === 'POST') {
+    const auth = parseAdmin(req)
+    if (auth.error) {
+      sendJson(res, 401, { detail: auth.error })
+      return
+    }
+    const user = findUserById(inactiveMatch[1])
+    if (!user) {
+      sendError(res, 404, 'user.not_found', 'User not found')
+      return
+    }
+    if (user.status === 'inactive') {
+      sendError(res, 400, 'user.already_inactive', 'User already inactive')
+      return
+    }
+    user.status = 'inactive'
+    user.updated_at = new Date().toISOString()
+    sendJson(res, 200, { msg: 'User inactivated successfully.' })
+    return
+  }
+
+  const reactivateMatch = path.match(/^\/manage\/reactivate-user\/([^/]+)$/)
+  if (reactivateMatch && method === 'POST') {
+    const auth = parseAdmin(req)
+    if (auth.error) {
+      sendJson(res, 401, { detail: auth.error })
+      return
+    }
+    const user = findUserById(reactivateMatch[1])
+    if (!user) {
+      sendError(res, 404, 'user.not_found', 'User not found')
+      return
+    }
+    if (user.status !== 'inactive') {
+      sendError(res, 400, 'user.already_active', 'User is already active')
+      return
+    }
+    user.status = 'active'
+    user.updated_at = new Date().toISOString()
+    sendJson(res, 200, { msg: 'User reactivated successfully.' })
+    return
+  }
+
+  const walletActionMatch = path.match(/^\/manage\/wallet-(activate|deactivate)\/([^/]+)$/)
   if (walletActionMatch && method === 'POST') {
     const auth = parseAdmin(req)
     if (auth.error) {
@@ -464,7 +647,7 @@ const server = http.createServer(async (req, res) => {
     }
     const user = findUserById(walletActionMatch[2])
     if (!user) {
-      sendError(res, 400, 'wallet.not_found', 'No wallet registrated for this user.')
+      sendError(res, 404, 'user.not_found', 'User not found')
       return
     }
     const wallet = walletForUser(user)
@@ -472,8 +655,7 @@ const server = http.createServer(async (req, res) => {
       sendError(res, 400, 'wallet.not_found', 'No wallet registrated for this user.')
       return
     }
-    const action = walletActionMatch[1]
-    if (action === 'activate') {
+    if (walletActionMatch[1] === 'activate') {
       if (wallet.is_active) {
         sendError(res, 400, 'wallet.already_activated', 'Wallet already activated.')
         return
@@ -491,26 +673,40 @@ const server = http.createServer(async (req, res) => {
     return
   }
 
-  const walletByIdMatch = path.match(/^\/wallet\/([^/]+)$/)
-  if (walletByIdMatch && method === 'GET') {
+  const walletByUserMatch = path.match(/^\/manage\/user-wallet\/([^/]+)$/)
+  if (walletByUserMatch && method === 'GET') {
     const auth = parseAdmin(req)
     if (auth.error) {
       sendJson(res, 401, { detail: auth.error })
       return
     }
-    const user = findUserById(walletByIdMatch[1])
+    const user = findUserById(walletByUserMatch[1])
     if (!user) {
-      sendError(res, 400, 'wallet.not_found', 'No wallet registrated for this user.')
+      sendError(res, 404, 'user.not_found', 'User not found')
       return
     }
     const wallet = walletForUser(user)
     if (!wallet) {
-      sendError(res, 400, 'wallet.not_found', 'No wallet registrated for this user.')
+      sendError(
+        res,
+        400,
+        'transaction.wallet_not_found',
+        "You don't have any wallet associated with your account. Please create an wallet account before proceeding.",
+      )
+      return
+    }
+    if (!wallet.is_active) {
+      sendError(
+        res,
+        400,
+        'transaction.wallet_not_active',
+        "Your wallet account not activated. Can't proceed further.",
+      )
       return
     }
     sendJson(res, 200, {
       currency: wallet.currency,
-      amount: wallet.balance.toFixed(2),
+      balance: wallet.balance.toFixed(2),
       user_id: user.id,
       is_active: wallet.is_active,
     })
@@ -542,7 +738,16 @@ const server = http.createServer(async (req, res) => {
       return
     }
     const currency = body.currency || 'NPR'
-    wallets.set(auth.user.email, { currency, balance: amount, hold_amount: 0, is_active: true })
+    const wallet = {
+      id: randomUUID(),
+      user_id: auth.user.id,
+      currency,
+      balance: amount,
+      hold_amount: 0,
+      is_active: true,
+    }
+    wallets.set(auth.user.email, wallet)
+    recordTransaction(wallet, 'deposit', amount)
     sendJson(res, 200, {
       msg: `Wallet created successfully with initial balance of ${currency} ${amount}.`,
     })
@@ -560,10 +765,9 @@ const server = http.createServer(async (req, res) => {
       sendError(res, 400, 'wallet.not_found', 'No wallet registrated for this user.')
       return
     }
-    // NOTE: the real API responds with "amount", not "balance".
     sendJson(res, 200, {
       currency: wallet.currency,
-      amount: wallet.balance.toFixed(2),
+      balance: wallet.balance.toFixed(2),
       hold_amount: wallet.hold_amount.toFixed(2),
       is_active: wallet.is_active,
     })
@@ -601,10 +805,12 @@ const server = http.createServer(async (req, res) => {
     const success = Math.random() > 0.4
     if (success) {
       wallet.balance += amount
+      recordTransaction(wallet, 'deposit', amount, 'success')
       sendJson(res, 200, {
         msg: `Transaction Deposit of ${wallet.currency} ${amount.toFixed(2)} SUCCESS.`,
       })
     } else {
+      recordTransaction(wallet, 'deposit', amount, 'failed')
       sendJson(res, 200, {
         msg: `Transaction Deposit of ${wallet.currency} ${amount.toFixed(2)} FAILED due to some issue. Please try again later.`,
       })
@@ -638,10 +844,12 @@ const server = http.createServer(async (req, res) => {
     const success = Math.random() > 0.4
     if (success) {
       wallet.balance -= amount
+      recordTransaction(wallet, 'withdraw', amount, 'success')
       sendJson(res, 200, {
         msg: `The amount of ${wallet.currency} ${amount.toFixed(2)} withdrawn successfully.`,
       })
     } else {
+      recordTransaction(wallet, 'withdraw', amount, 'failed')
       sendJson(res, 200, {
         msg: `The amount of ${wallet.currency} ${amount.toFixed(2)} failed due to some issue. Please try again later.`,
       })
@@ -688,12 +896,37 @@ const server = http.createServer(async (req, res) => {
     return
   }
 
+  if (path === '/transaction/recent-transaction' && method === 'GET') {
+    const auth = parseAuth(req)
+    if (auth.error) {
+      sendJson(res, 401, { detail: auth.error })
+      return
+    }
+    const wallet = wallets.get(auth.user.email)
+    const page = Number(url.searchParams.get('page') || 1)
+    const pageSize = Math.min(Number(url.searchParams.get('page_size') || 5), 50)
+    const rows = wallet
+      ? transactions
+          .filter((tx) => tx.wallet_id === wallet.id)
+          .map((tx) => ({
+            id: tx.id,
+            amount: tx.amount.toFixed(2),
+            type: tx.type,
+            status: tx.status,
+            reference_id: tx.reference_id,
+            created_at: tx.created_at,
+          }))
+      : []
+    sendJson(res, 200, paginate(rows, page, pageSize))
+    return
+  }
+
   sendJson(res, 404, { detail: { error_type: 'route.not_found', msg: 'Not Found' } })
 })
 
 server.listen(PORT, '127.0.0.1', () => {
   console.log(`Mock Digital Wallet API listening on ${baseUrl}`)
   console.log('Logins: demo@wallet.dev / password123  (2FA: sam@example.com / password123, code 123456)')
-  console.log('Admin:  admin@wallet.dev / password123  (sees the Admin section)')
+  console.log('Admin:  admin@wallet.dev / password123  (use /admin/login)')
   console.log('Create your own account, then create a wallet to get started.')
 })

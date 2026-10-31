@@ -1,6 +1,6 @@
 import { useState, type FormEvent } from 'react'
 import { Link } from 'react-router-dom'
-import { ArrowDownToLine, ArrowUpFromLine, Info, Plus, Send } from 'lucide-react'
+import { ArrowDownToLine, ArrowUpFromLine, Plus, Send } from 'lucide-react'
 import { useAuth } from '../auth/auth'
 import { useWalletBalance } from '../lib/useWallet'
 import { walletApi } from '../lib/api'
@@ -91,10 +91,7 @@ export function Wallets() {
 
   return (
     <div>
-      <PageHeader
-        title="Wallet"
-        subtitle="Your account has a single wallet managed by the API."
-      />
+      <PageHeader title="Wallet" />
 
       <div className="space-y-6">
         {justCreated && (
@@ -108,12 +105,12 @@ export function Wallets() {
             <Spinner /> Loading wallet…
           </div>
         ) : wallet ? (
-          <Card title="Wallet details" subtitle="As returned by /wallet/check-balance">
+          <Card title="Wallet details">
             <dl className="divide-y divide-slate-100 px-5">
               <div className="flex items-center justify-between py-4">
                 <dt className="text-sm text-slate-500">Available balance</dt>
                 <dd className="text-lg font-bold tracking-tight text-slate-900">
-                  {formatMoney(wallet.amount, wallet.currency)}
+                  {formatMoney(wallet.balance, wallet.currency)}
                 </dd>
               </div>
               <div className="flex items-center justify-between py-4">
@@ -157,16 +154,6 @@ export function Wallets() {
         ) : (
           <CreateWalletForm onCreated={onCreated} />
         )}
-
-        <div className="flex items-start gap-3 rounded-xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm text-slate-600">
-          <Info className="mt-0.5 h-4 w-4 shrink-0 text-slate-400" />
-          <p>
-            The current API exposes one wallet per user.{' '}
-            <span className="font-medium text-slate-700">Wallet activation/deactivation</span>{' '}
-            and lookup by user are admin-only routes, so they are not part of this
-            interface. Wallet IDs and creation dates are not returned by the API yet.
-          </p>
-        </div>
 
         {user && (
           <div className="text-sm text-slate-500">

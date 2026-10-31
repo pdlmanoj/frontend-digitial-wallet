@@ -1,24 +1,31 @@
 import { useState } from 'react'
 import { Link } from 'react-router-dom'
-import { ArrowDownToLine, ArrowUpFromLine, Eraser, Info, Send } from 'lucide-react'
-import { clearActivity, getActivity } from '../lib/activity'
-import { Card, PageHeader } from '../components/ui'
+import {
+  ArrowDownToLine,
+  ArrowUpFromLine,
+  RefreshCw,
+  Send,
+} from 'lucide-react'
+import { useWalletBalance } from '../lib/useWallet'
+import { useTransactions } from '../lib/useTransactions'
+import { Alert, Card, PageHeader, Pagination, Spinner } from '../components/ui'
 import { TransactionList } from '../components/TransactionList'
-import type { LocalTransaction } from '../types'
+
+const PAGE_SIZE = 10
 
 export function Transactions() {
-  const [activities, setActivities] = useState<LocalTransaction[]>(() => getActivity())
-
-  const handleClear = () => {
-    clearActivity()
-    setActivities([])
-  }
+  const [page, setPage] = useState(1)
+  const { wallet } = useWalletBalance()
+  const { transactions, pagination, loading, error, refresh } = useTransactions(
+    page,
+    PAGE_SIZE,
+  )
 
   return (
     <div>
       <PageHeader
         title="Transactions"
-        subtitle="Money in, money out, and transfers."
+        subtitle="Deposits and withdrawals recorded by the API."
         actions={
           <div className="flex flex-wrap gap-2">
             <Link
@@ -44,39 +51,55 @@ export function Transactions() {
       />
 
       <div className="space-y-6">
-        <div className="flex items-start gap-3 rounded-xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm text-slate-600">
-          <Info className="mt-0.5 h-4 w-4 shrink-0 text-slate-400" />
-          <p>
-            The API does <span className="font-medium text-slate-700">not</span> expose a
-            transaction history endpoint yet. Each deposit/withdrawal is still recorded in
-            the database with a unique reference ID; this list simply tracks what you do in
-            this browser session.
-          </p>
-        </div>
+        {error && (
+          <Alert tone="error" title="Could not load transactions">
+            {error}
+          </Alert>
+        )}
 
         <Card
-          title="Your activity"
-          subtitle={`${activities.length} transaction${activities.length === 1 ? '' : 's'} recorded`}
+          title="Transaction history"
+          subtitle={
+            pagination
+              ? `${pagination.total} transaction${pagination.total === 1 ? '' : 's'}`
+              : 'Loading history…'
+          }
           actions={
-            activities.length > 0 ? (
-              <button
-                type="button"
-                onClick={handleClear}
-                className="inline-flex items-center gap-1.5 rounded-lg border border-slate-200 px-3 py-1.5 text-xs font-semibold text-slate-500 transition hover:bg-slate-50 hover:text-slate-700"
-              >
-                <Eraser className="h-3.5 w-3.5" /> Clear local log
-              </button>
-            ) : undefined
+            <button
+              type="button"
+              onClick={() => void refresh()}
+              disabled={loading}
+              className="inline-flex items-center gap-1.5 rounded-lg border border-slate-200 px-3 py-1.5 text-xs font-semibold text-slate-500 transition hover:bg-slate-50 hover:text-slate-700 disabled:opacity-50"
+            >
+              <RefreshCw className="h-3.5 w-3.5" /> Refresh
+            </button>
           }
         >
-          <TransactionList
-            transactions={activities}
-            emptyAction={
-              <Link to="/deposit" className="text-sm font-semibold text-emerald-600 hover:text-emerald-700">
-                Make your first deposit
-              </Link>
-            }
-          />
+          {loading ? (
+            <div className="flex h-48 items-center justify-center gap-2 text-sm text-slate-500">
+              <Spinner /> Loading transactions…
+            </div>
+          ) : (
+            <TransactionList
+              transactions={transactions}
+              currency={wallet?.currency ?? 'NPR'}
+              emptyAction={
+                <Link to="/deposit" className="text-sm font-semibold text-emerald-600 hover:text-emerald-700">
+                  Make your first deposit
+                </Link>
+              }
+            />
+          )}
+
+          {pagination && (
+            <Pagination
+              page={pagination.page}
+              totalPages={pagination.total_pages}
+              total={pagination.total}
+              onPageChange={setPage}
+              disabled={loading}
+            />
+          )}
         </Card>
       </div>
     </div>

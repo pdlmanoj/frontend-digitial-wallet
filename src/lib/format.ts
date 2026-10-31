@@ -47,11 +47,9 @@ export function isValidPhone(value: string): boolean {
   return /^[0-9]{10}$/.test(value)
 }
 
-// The send-money response is "Amount of NPR 100.00 send successfully to <name>."
-// Pull the receiver's name out so we can log it.
-export function extractReceiverName(message: string): string | null {
-  const match = message.match(/to (.+?)\.?$/)
-  if (!match) return null
-  const name = match[1].trim()
-  return name || null
+// The deposit/withdraw endpoints report success/failure in the response text.
+export function statusFromMessage(msg: string): 'success' | 'failed' {
+  if (/failed|FAILED/i.test(msg)) return 'failed'
+  if (/success|SUCCESS|successfully/i.test(msg)) return 'success'
+  return 'success'
 }

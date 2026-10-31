@@ -1,11 +1,32 @@
 import { useCallback, useEffect, useState } from 'react'
 import { Link, useParams } from 'react-router-dom'
-import { ArrowLeft, PowerOff, Power } from 'lucide-react'
-import { userApi, walletApi } from '../../lib/api'
+import { ArrowLeft, PowerOff, Power, UserCheck, UserX } from 'lucide-react'
+import { adminApi, ApiError } from '../../lib/api'
 import type { AdminUser, AdminWallet } from '../../types'
-import { capitalize, formatDOB, formatMoney } from '../../lib/format'
+import { capitalize, formatDOB, formatDate, formatMoney } from '../../lib/format'
 import { Alert, Badge, Button, Card, Modal, PageHeader, Spinner } from '../../components/ui'
 import { WalletStatusBadge } from '../../components/badges'
+
+function apiErrorType(error: unknown): string | null {
+  if (!(error instanceof ApiError)) return null
+  const body = error.body as
+    | { detail?: { error_type?: string } }
+    | null
+    | undefined
+  return body?.detail?.error_type ?? null
+}
+
+function isNoWalletError(error: unknown): boolean {
+  if (!(error instanceof ApiError) || error.status !== 400) return false
+  if (apiErrorType(error) === 'transaction.wallet_not_found') return true
+  return /wallet.*associated|no wallet/i.test(error.message)
+}
+
+function isWalletNotActiveError(error: unknown): boolean {
+  if (!(error instanceof ApiError) || error.status !== 400) return false
+  if (apiErrorType(error) === 'transaction.wallet_not_active') return true
+  return /wallet.*not active|wallet.*not activated/i.test(error.message)
+}
 
 export function AdminUserDetail() {
   const { id } = useParams<{ id: string }>()
@@ -14,6 +35,7 @@ export function AdminUserDetail() {
   const [user, setUser] = useState<AdminUser | null>(null)
   const [wallet, setWallet] = useState<AdminWallet | null>(null)
   const [hasWallet, setHasWallet] = useState(true)
+  const [walletInactive, setWalletInactive] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [actionMsg, setActionMsg] = useState<string | null>(null)
   const [loading, setLoading] = useState(true)
@@ -23,21 +45,49 @@ export function AdminUserDetail() {
   const [confirmLoading, setConfirmLoading] = useState(false)
   const [confirmError, setConfirmError] = useState<string | null>(null)
 
+  const [inactivateOpen, setInactivateOpen] = useState(false)
+  const [inactivateLoading, setInactivateLoading] = useState(false)
+  const [inactivateError, setInactivateError] = useState<string | null>(null)
+
+  const [reactivateOpen, setReactivateOpen] = useState(false)
+  const [reactivateLoading, setReactivateLoading] = useState(false)
+  const [reactivateError, setReactivateError] = useState<string | null>(null)
+
   const load = useCallback(async () => {
     setLoading(true)
     setError(null)
     try {
-      const fetchedUser = await userApi.getUser(userId)
+      const fetchedUser = await adminApi.getUser(userId)
       setUser(fetchedUser)
+
+      if (!fetchedUser.wallet) {
+        setWallet(null)
+        setHasWallet(false)
+        setWalletInactive(false)
+        return
+      }
+
+      if (!fetchedUser.wallet.is_active) {
+        setWallet(null)
+        setHasWallet(true)
+        setWalletInactive(true)
+        return
+      }
+
       try {
-        const fetchedWallet = await walletApi.byUser(userId)
+        const fetchedWallet = await adminApi.walletByUser(userId)
         setWallet(fetchedWallet)
         setHasWallet(true)
+        setWalletInactive(false)
       } catch (walletErr) {
-        // The wallet route 400s when the user has no wallet.
-        if (walletErr instanceof Error && /no wallet/i.test(walletErr.message)) {
+        if (isNoWalletError(walletErr)) {
           setWallet(null)
           setHasWallet(false)
+          setWalletInactive(false)
+        } else if (isWalletNotActiveError(walletErr)) {
+          setWallet(null)
+          setHasWallet(true)
+          setWalletInactive(true)
         } else {
           throw walletErr
         }
@@ -59,14 +109,44 @@ export function AdminUserDetail() {
     setConfirmOpen(true)
   }
 
+  const runInactivate = async () => {
+    setInactivateLoading(true)
+    setInactivateError(null)
+    try {
+      const response = await adminApi.inactivateUser(userId)
+      setActionMsg(response.msg)
+      setInactivateOpen(false)
+      void load()
+    } catch (err) {
+      setInactivateError(err instanceof Error ? err.message : 'Action failed.')
+    } finally {
+      setInactivateLoading(false)
+    }
+  }
+
+  const runReactivate = async () => {
+    setReactivateLoading(true)
+    setReactivateError(null)
+    try {
+      const response = await adminApi.reactivateUser(userId)
+      setActionMsg(response.msg)
+      setReactivateOpen(false)
+      void load()
+    } catch (err) {
+      setReactivateError(err instanceof Error ? err.message : 'Action failed.')
+    } finally {
+      setReactivateLoading(false)
+    }
+  }
+
   const runConfirm = async () => {
     setConfirmLoading(true)
     setConfirmError(null)
     try {
       const response =
         confirmAction === 'activate'
-          ? await walletApi.activate(userId)
-          : await walletApi.deactivate(userId)
+          ? await adminApi.activateWallet(userId)
+          : await adminApi.deactivateWallet(userId)
       setActionMsg(response.msg)
       setConfirmOpen(false)
       void load()
@@ -81,7 +161,7 @@ export function AdminUserDetail() {
     <div>
       <PageHeader
         title="Admin — User"
-        subtitle="Account and wallet, with admin wallet controls."
+        subtitle="Account and wallet details with administrative controls."
         actions={
           <Link
             to="/admin/users"
@@ -132,6 +212,17 @@ export function AdminUserDetail() {
                   </Badge>
                 </div>
               </div>
+              <div className="sm:ml-auto">
+                {user.status === 'active' ? (
+                  <Button variant="danger" onClick={() => setInactivateOpen(true)}>
+                    <UserX className="h-4 w-4" /> Deactivate account
+                  </Button>
+                ) : user.status === 'inactive' ? (
+                  <Button onClick={() => setReactivateOpen(true)}>
+                    <UserCheck className="h-4 w-4" /> Activate account
+                  </Button>
+                ) : null}
+              </div>
             </div>
             <dl className="grid grid-cols-1 gap-x-8 border-t border-slate-100 px-5 py-4 sm:grid-cols-2">
               <div className="flex items-center justify-between gap-4 py-2">
@@ -148,23 +239,47 @@ export function AdminUserDetail() {
               </div>
               <div className="flex items-center justify-between gap-4 py-2">
                 <dt className="text-sm text-slate-500">User ID</dt>
-                <dd className="max-w-[14rem] truncate text-xs text-slate-500">{user.id}</dd>
+                <dd className="break-all text-right font-mono text-xs text-slate-500">
+                  {user.id}
+                </dd>
+              </div>
+              <div className="flex items-center justify-between gap-4 py-2">
+                <dt className="text-sm text-slate-500">Created</dt>
+                <dd className="text-sm font-medium text-slate-900">{formatDate(user.created_at)}</dd>
+              </div>
+              <div className="flex items-center justify-between gap-4 py-2">
+                <dt className="text-sm text-slate-500">Last updated</dt>
+                <dd className="text-sm font-medium text-slate-900">{formatDate(user.updated_at)}</dd>
               </div>
             </dl>
           </Card>
 
-          <Card
-            title="Wallet"
-            subtitle="Source: /wallet/{user_id} and admin activate/deactivate routes."
-          >
-            {hasWallet && wallet ? (
+          <Card title="Wallet">
+            {!hasWallet ? (
+              <div className="px-5 py-5">
+                <Alert tone="warning" title="No wallet associated">
+                  This customer does not have a wallet associated with their account.
+                </Alert>
+              </div>
+            ) : walletInactive ? (
+              <div className="flex flex-col gap-4 px-5 py-5 sm:flex-row sm:items-center sm:justify-between">
+                <div className="flex-1">
+                  <Alert tone="warning" title="Wallet inactive">
+                    This customer has a wallet, but it is currently deactivated.
+                  </Alert>
+                </div>
+                <Button onClick={() => openConfirm('activate')}>
+                  <Power className="h-4 w-4" /> Activate wallet
+                </Button>
+              </div>
+            ) : wallet ? (
               <div className="flex flex-col gap-4 px-5 py-5 sm:flex-row sm:items-center sm:justify-between">
                 <div>
                   <p className="text-xs font-medium uppercase tracking-wide text-slate-500">
                     Balance
                   </p>
                   <p className="mt-1 text-2xl font-bold tracking-tight text-slate-900">
-                    {formatMoney(wallet.amount, wallet.currency)}
+                    {formatMoney(wallet.balance, wallet.currency)}
                   </p>
                   <div className="mt-1.5 flex items-center gap-2">
                     <WalletStatusBadge active={wallet.is_active} />
@@ -172,22 +287,14 @@ export function AdminUserDetail() {
                   </div>
                 </div>
                 <div className="flex gap-2">
-                  {wallet.is_active ? (
+                  {wallet.is_active && (
                     <Button variant="danger" onClick={() => openConfirm('deactivate')}>
                       <PowerOff className="h-4 w-4" /> Deactivate wallet
-                    </Button>
-                  ) : (
-                    <Button onClick={() => openConfirm('activate')}>
-                      <Power className="h-4 w-4" /> Activate wallet
                     </Button>
                   )}
                 </div>
               </div>
-            ) : (
-              <div className="px-5 py-5 text-sm text-slate-500">
-                <p>This user has no wallet yet.</p>
-              </div>
-            )}
+            ) : null}
           </Card>
         </div>
       ) : null}
@@ -221,6 +328,60 @@ export function AdminUserDetail() {
                   <PowerOff className="h-4 w-4" />
                 ))}
               {confirmAction === 'activate' ? 'Activate' : 'Deactivate'}
+            </Button>
+          </div>
+        </div>
+      </Modal>
+
+      <Modal
+        open={inactivateOpen}
+        onClose={() => setInactivateOpen(false)}
+        title="Deactivate user account"
+      >
+        <div className="space-y-4">
+          {inactivateError && <Alert tone="error">{inactivateError}</Alert>}
+          <p className="text-sm text-slate-600">
+            This marks the account as inactive. The user will no longer be able to sign in
+            or make transactions.
+          </p>
+          <div className="flex gap-3">
+            <Button
+              variant="secondary"
+              onClick={() => setInactivateOpen(false)}
+              disabled={inactivateLoading}
+            >
+              Cancel
+            </Button>
+            <Button variant="danger" onClick={runInactivate} loading={inactivateLoading}>
+              {!inactivateLoading && <UserX className="h-4 w-4" />}
+              Deactivate account
+            </Button>
+          </div>
+        </div>
+      </Modal>
+
+      <Modal
+        open={reactivateOpen}
+        onClose={() => setReactivateOpen(false)}
+        title="Activate user account"
+      >
+        <div className="space-y-4">
+          {reactivateError && <Alert tone="error">{reactivateError}</Alert>}
+          <p className="text-sm text-slate-600">
+            This restores the customer account so they can sign in and use their wallet
+            again.
+          </p>
+          <div className="flex gap-3">
+            <Button
+              variant="secondary"
+              onClick={() => setReactivateOpen(false)}
+              disabled={reactivateLoading}
+            >
+              Cancel
+            </Button>
+            <Button onClick={runReactivate} loading={reactivateLoading}>
+              {!reactivateLoading && <UserCheck className="h-4 w-4" />}
+              Activate account
             </Button>
           </div>
         </div>

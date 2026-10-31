@@ -1,10 +1,10 @@
-import { ArrowDownToLine, ArrowUpFromLine, Send, Activity } from 'lucide-react'
-import type { LocalTransaction, TxType } from '../types'
+import { ArrowDownToLine, ArrowUpFromLine, Activity } from 'lucide-react'
+import type { ServerTransaction, TxType } from '../types'
 import { formatDate, formatMoney } from '../lib/format'
 import { TransactionStatusBadge } from './badges'
 import { EmptyState } from './ui'
 
-const typeMeta: Record<TxType, { label: string; icon: typeof Send; className: string; sign: number }> = {
+const typeMeta: Record<TxType, { label: string; icon: typeof Activity; className: string; sign: number }> = {
   deposit: {
     label: 'Deposit',
     icon: ArrowDownToLine,
@@ -17,25 +17,19 @@ const typeMeta: Record<TxType, { label: string; icon: typeof Send; className: st
     className: 'bg-amber-50 text-amber-600',
     sign: -1,
   },
-  send: {
-    label: 'Sent money',
-    icon: Send,
-    className: 'bg-sky-50 text-sky-600',
-    sign: -1,
-  },
 }
 
 export function TransactionRow({
   transaction,
+  currency = 'NPR',
 }: {
-  transaction: LocalTransaction
+  transaction: ServerTransaction
+  currency?: string
 }) {
   const meta = typeMeta[transaction.type]
   const Icon = meta.icon
-  const amount = Number(transaction.amount)
-  const sign = meta.sign > 0 || amount <= 0 ? '+' : '−'
-  const amountClass =
-    meta.sign > 0 || amount <= 0 ? 'text-emerald-600' : 'text-slate-900'
+  const sign = meta.sign > 0 ? '+' : '−'
+  const amountClass = meta.sign > 0 ? 'text-emerald-600' : 'text-slate-900'
 
   return (
     <li className="flex items-center gap-4 px-5 py-4">
@@ -44,19 +38,19 @@ export function TransactionRow({
       </div>
       <div className="min-w-0 flex-1">
         <p className="truncate text-sm font-medium text-slate-900">{meta.label}</p>
-        <p className="truncate text-xs text-slate-500">{transaction.note}</p>
+        <p className="truncate text-xs text-slate-500">Ref {transaction.reference_id}</p>
       </div>
       <div className="hidden text-right sm:block">
         <p className={`text-sm font-semibold tabular-nums ${amountClass}`}>
           {sign}
-          {formatMoney(transaction.amount, transaction.currency)}
+          {formatMoney(transaction.amount, currency)}
         </p>
-        <p className="text-xs text-slate-500">{formatDate(transaction.createdAt)}</p>
+        <p className="text-xs text-slate-500">{formatDate(transaction.created_at)}</p>
       </div>
       <div className="sm:hidden text-right">
         <p className={`text-sm font-semibold tabular-nums ${amountClass}`}>
           {sign}
-          {formatMoney(transaction.amount, transaction.currency)}
+          {formatMoney(transaction.amount, currency)}
         </p>
       </div>
       <TransactionStatusBadge status={transaction.status} />
@@ -66,17 +60,19 @@ export function TransactionRow({
 
 export function TransactionList({
   transactions,
+  currency,
   emptyAction,
 }: {
-  transactions: LocalTransaction[]
+  transactions: ServerTransaction[]
+  currency?: string
   emptyAction?: React.ReactNode
 }) {
   if (transactions.length === 0) {
     return (
       <EmptyState
         icon={<Activity className="h-6 w-6" />}
-        title="No activity yet"
-        description="Deposits, withdrawals, and transfers you make in this browser will show up here."
+        title="No transactions yet"
+        description="Deposits and withdrawals from your wallet will show up here."
         action={emptyAction}
       />
     )
@@ -85,7 +81,11 @@ export function TransactionList({
   return (
     <ul className="divide-y divide-slate-100">
       {transactions.map((transaction) => (
-        <TransactionRow key={transaction.id} transaction={transaction} />
+        <TransactionRow
+          key={transaction.id}
+          transaction={transaction}
+          currency={currency}
+        />
       ))}
     </ul>
   )
