@@ -33,8 +33,8 @@ export function VerifyTwoFactor() {
 
     setLoading(true)
     try {
-      await verifyTotp(totp)
-      navigate('/dashboard', { replace: true })
+      const profile = await verifyTotp(totp)
+      navigate(profile?.is_admin ? '/admin' : '/dashboard', { replace: true })
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Unable to verify the code.')
     } finally {

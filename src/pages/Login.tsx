@@ -1,9 +1,11 @@
 import { useState, type FormEvent } from 'react'
 import { Link, useLocation, useNavigate } from 'react-router-dom'
-import { Eye, EyeOff, LogIn } from 'lucide-react'
+import { Eye, EyeOff, LogIn, ShieldCheck } from 'lucide-react'
 import { useAuth } from '../auth/auth'
 import { ApiError } from '../lib/api'
 import { AuthShell } from '../components/AuthShell'
+import { DemoAccountsPanel } from '../components/DemoAccountsPanel'
+import { demoAccounts } from '../config/demo'
 import { Alert, Button, Input } from '../components/ui'
 
 export function Login() {
@@ -20,6 +22,12 @@ export function Login() {
 
   const registered = (location.state as { registered?: boolean } | null)?.registered === true
 
+  const fillDemo = (email: string, password: string) => {
+    setEmail(email)
+    setPassword(password)
+    setError(null)
+  }
+
   const handleSubmit = async (event: FormEvent) => {
     event.preventDefault()
     setError(null)
@@ -31,7 +39,7 @@ export function Login() {
 
     setLoading(true)
     try {
-      const { needTwoFactor } = await login(email.trim(), password)
+      const { needTwoFactor } = await login(email.trim(), password, 'customer')
       navigate(needTwoFactor ? '/verify-2fa' : from, { replace: true })
     } catch (err) {
       if (err instanceof ApiError) {
@@ -119,6 +127,38 @@ export function Login() {
           Sign in
         </Button>
       </form>
+
+      <Button
+        type="button"
+        variant="secondary"
+        className="mt-3 w-full"
+        onClick={() => navigate('/admin/login')}
+      >
+        <ShieldCheck className="h-4 w-4" />
+        Login as admin
+      </Button>
+
+      <DemoAccountsPanel
+        accounts={[
+          {
+            account: demoAccounts.customer,
+            actionLabel: 'Use',
+            onUse: () =>
+              fillDemo(demoAccounts.customer.email, demoAccounts.customer.password),
+          },
+          {
+            account: demoAccounts.admin,
+            actionLabel: 'Admin login',
+            onUse: () =>
+              navigate('/admin/login', {
+                state: {
+                  demoEmail: demoAccounts.admin.email,
+                  demoPassword: demoAccounts.admin.password,
+                },
+              }),
+          },
+        ]}
+      />
     </AuthShell>
   )
 }
