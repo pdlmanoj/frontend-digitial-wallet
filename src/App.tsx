@@ -1,6 +1,7 @@
 import { BrowserRouter, Navigate, Route, Routes } from 'react-router-dom'
 import { AuthProvider } from './auth/auth'
 import { Layout } from './components/Layout'
+import { AdminLayout } from './components/AdminLayout'
 import { RequireAuth } from './components/RequireAuth'
 import { RequireAdmin } from './components/RequireAdmin'
 import { Login } from './pages/Login'
@@ -15,8 +16,11 @@ import { SendMoney } from './pages/SendMoney'
 import { Security } from './pages/Security'
 import { Profile } from './pages/Profile'
 import { NotFound } from './pages/NotFound'
+import { AdminLogin } from './pages/admin/AdminLogin'
+import { AdminDashboard } from './pages/admin/AdminDashboard'
 import { AdminUsers } from './pages/admin/AdminUsers'
 import { AdminUserDetail } from './pages/admin/AdminUserDetail'
+import { AdminProfile } from './pages/admin/AdminProfile'
 
 export default function App() {
   return (
@@ -26,6 +30,7 @@ export default function App() {
           <Route path="/login" element={<Login />} />
           <Route path="/register" element={<Register />} />
           <Route path="/verify-2fa" element={<VerifyTwoFactor />} />
+          <Route path="/admin/login" element={<AdminLogin />} />
 
           <Route
             element={
@@ -43,11 +48,19 @@ export default function App() {
             <Route path="/send" element={<SendMoney />} />
             <Route path="/security" element={<Security />} />
             <Route path="/profile" element={<Profile />} />
-            <Route path="/admin/users" element={<RequireAdmin><AdminUsers /></RequireAdmin>} />
-            <Route
-              path="/admin/users/:id"
-              element={<RequireAdmin><AdminUserDetail /></RequireAdmin>}
-            />
+          </Route>
+
+          <Route
+            element={
+              <RequireAdmin>
+                <AdminLayout />
+              </RequireAdmin>
+            }
+          >
+            <Route path="/admin" element={<AdminDashboard />} />
+            <Route path="/admin/users" element={<AdminUsers />} />
+            <Route path="/admin/users/:id" element={<AdminUserDetail />} />
+            <Route path="/admin/profile" element={<AdminProfile />} />
           </Route>
 
           <Route path="*" element={<NotFound />} />
