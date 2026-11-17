@@ -22,7 +22,7 @@ export function DemoAccountsPanel({ accounts }: { accounts: DemoAccountAction[] 
             <div className="min-w-0">
               <p className="text-xs font-semibold text-slate-700">{account.label}</p>
               <p className="truncate font-mono text-xs text-slate-600">{account.email}</p>
-              <p className="font-mono text-xs text-slate-500">Password: {account.password}</p>
+              <p className="font-mono text-xs text-slate-500">Password: my*******</p>
             </div>
             <button
               type="button"
