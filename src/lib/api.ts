@@ -9,8 +9,11 @@ import type {
   ProfileImage,
   ProfileImageResponse,
   RefreshResponse,
+  SendOtpRequest,
   ServerTransaction,
+  SignupRequest,
   UserProfile,
+  VerifyOtpRequest,
   WalletBalance,
 } from '../types'
 
@@ -458,8 +461,33 @@ export const transactionApi = {
 }
 
 export const userApi = {
-  signup: (payload: unknown) =>
+  // Signup is the final step of registration: send-otp -> verify-otp -> signup.
+  signup: (payload: SignupRequest) =>
     apiRequest<MessageResponse>('/user/signup', {
+      method: 'POST',
+      auth: false,
+      retry: false,
+      body: payload,
+    }),
+
+  sendOtp: (payload: SendOtpRequest) =>
+    apiRequest<MessageResponse>('/user/send-otp', {
+      method: 'POST',
+      auth: false,
+      retry: false,
+      body: payload,
+    }),
+
+  verifyOtp: (payload: VerifyOtpRequest) =>
+    apiRequest<MessageResponse>('/user/verify-otp', {
+      method: 'POST',
+      auth: false,
+      retry: false,
+      body: payload,
+    }),
+
+  resendOtp: (payload: SendOtpRequest) =>
+    apiRequest<MessageResponse>('/user/resend-otp', {
       method: 'POST',
       auth: false,
       retry: false,
