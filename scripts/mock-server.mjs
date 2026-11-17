@@ -26,6 +26,16 @@ let transactionSeq = 0
 let twoFactorTotp = '123456' // in the mock, any 6 digits also work
 const twoFactorPending = new Map()
 
+// Signup email OTP (mirrors the Redis-backed signup-email:{email} key).
+const signupOtpCode = '123456'
+const signupOtpTtlMs = 5 * 60 * 1000
+const signupOtps = new Map()
+
+function issueSignupOtp(email) {
+  signupOtps.set(email, { otp: signupOtpCode, expiresAt: Date.now() + signupOtpTtlMs })
+  console.log(`Mock signup OTP for ${email}: ${signupOtpCode}`)
+}
+
 function makeReferenceId() {
   transactionSeq += 1
   return `TRAN${Date.now()}${String(transactionSeq).padStart(6, '0')}`
@@ -460,6 +470,42 @@ const server = http.createServer(async (req, res) => {
   }
 
   // --- user -------------------------------------------------------------
+  if ((path === '/user/send-otp' || path === '/user/resend-otp') && method === 'POST') {
+    const body = await readJson(req)
+    const email = String(body.email || '').trim().toLowerCase()
+    if (users.has(email)) {
+      sendError(
+        res,
+        400,
+        'user.already_exists',
+        'It seems you already have an account with us. Please proceed with login.',
+      )
+      return
+    }
+    issueSignupOtp(email)
+    sendJson(res, 200, {
+      msg: path === '/user/resend-otp' ? 'Resend OTP successfully' : 'OTP send successfully',
+    })
+    return
+  }
+
+  if (path === '/user/verify-otp' && method === 'POST') {
+    const body = await readJson(req)
+    const email = String(body.email || '').trim().toLowerCase()
+    const pending = signupOtps.get(email)
+    if (
+      !pending ||
+      pending.expiresAt < Date.now() ||
+      String(body.otp) !== pending.otp
+    ) {
+      sendError(res, 400, 'verify_otp.invalid_otp', 'Invalid OTP or Expired')
+      return
+    }
+    signupOtps.delete(email)
+    sendJson(res, 200, { msg: 'OTP verified successfully' })
+    return
+  }
+
   if (path === '/user/signup' && method === 'POST') {
     const body = await readJson(req)
     const email = String(body.email).trim().toLowerCase()
@@ -497,6 +543,7 @@ const server = http.createServer(async (req, res) => {
       is_2fa_enable: false,
       profile_image: null,
     })
+    signupOtps.delete(email)
     sendJson(res, 201, { ...users.get(email), password: undefined })
     return
   }
@@ -928,5 +975,6 @@ server.listen(PORT, '127.0.0.1', () => {
   console.log(`Mock Digital Wallet API listening on ${baseUrl}`)
   console.log('Logins: demo@wallet.dev / password123  (2FA: sam@example.com / password123, code 123456)')
   console.log('Admin:  admin@wallet.dev / password123  (use /admin/login)')
+  console.log('Signup: email OTP is sent first; use code 123456 to verify, then the account is created.')
   console.log('Create your own account, then create a wallet to get started.')
 })

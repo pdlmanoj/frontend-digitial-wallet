@@ -110,3 +110,24 @@ export type ProfileImage = ProfileImageResponse | null
 export interface MessageResponse {
   msg: string
 }
+
+// POST /user/signup -> UserCreateSchema (called only after OTP verification)
+export interface SignupRequest {
+  name: string
+  email: string
+  password: string
+  phone_number: string
+  gender: Gender
+  date_of_birth: string
+}
+
+// POST /user/send-otp and POST /user/resend-otp -> Body(embed=True)
+export interface SendOtpRequest {
+  email: string
+}
+
+// POST /user/verify-otp -> Body(embed=True)
+export interface VerifyOtpRequest {
+  email: string
+  otp: string
+}

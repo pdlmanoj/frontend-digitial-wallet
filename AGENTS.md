@@ -79,6 +79,23 @@ Auth state machine (`auth/auth.tsx`): `status` is `'loading' |
 `RequireAdmin` protects the admin portal and redirects non-admins to
 `/dashboard`, unauthenticated visitors to `/admin/login`.
 
+**Registration (signup) flow — `/register` (`src/pages/Register.tsx`):** two
+steps, and the user is created **only** after the email OTP is verified.
+1. Collect the initial customer data (name, email, password, phone, gender,
+   DOB) and call `POST /user/send-otp` with `{ email }`. Nothing is created yet.
+2. Enter the 6-digit code and call `POST /user/verify-otp` with
+   `{ email, otp }`. `POST /user/resend-otp` with `{ email }` issues a fresh code.
+3. Only after verification succeeds call `POST /user/signup` with the saved
+   form data (`SignupRequest`), then navigate to `/login` with
+   `{ state: { registered: true } }`.
+
+The OTP is email-based (Redis key `signup-email:{email}`, 6 digits, 5-minute
+TTL, single use) and is **separate** from the TOTP 2FA login step in
+`VerifyTwoFactor.tsx`. Form data (including the password) stays in component
+state between the two steps — never put it in `sessionStorage`. All three OTP
+wrappers live in `userApi` alongside `signup`, and the mock server mirrors them
+with the fixed code `123456`.
+
 ---
 
 ## 3. API client (`src/lib/api.ts`)
@@ -262,9 +279,9 @@ transaction log anymore.
 `updated_at`), `AdminWallet`, `Pagination`, `PaginatedResponse<T>`,
 `LoginTokenResponse`, `LoginTwoFactorResponse`, `RefreshResponse`,
 `WalletBalance`, `CreateWalletRequest`, `ProfileImageResponse`, `ProfileImage`,
-`ServerTransaction`, `MessageResponse`,
-`TxStatus` (`pending|success|failed`), `TxType` (`deposit|withdraw`), `Gender`,
-`UserStatus`.
+`ServerTransaction`, `MessageResponse`, `SignupRequest`, `SendOtpRequest`,
+`VerifyOtpRequest`, `TxStatus` (`pending|success|failed`), `TxType`
+(`deposit|withdraw`), `Gender`, `UserStatus`.
 
 ---
 

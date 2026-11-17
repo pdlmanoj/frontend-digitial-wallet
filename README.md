@@ -86,7 +86,7 @@ location / {
 | `/login` | Customer sign in | `POST /auth/login` |
 | `/admin/login` | Admin sign in (admin accounts only) | `POST /auth/login` |
 | `/verify-2fa` | TOTP step shared by both portals | `POST /auth/verify-2fa` |
-| `/register` | Create customer account | `POST /user/signup` |
+| `/register` | Create customer account (2-step) | `POST /user/send-otp`, `POST /user/resend-otp`, `POST /user/verify-otp`, then `POST /user/signup` |
 | `/dashboard` | Balance, wallet status, recent transactions | `GET /auth/me`, `GET /wallet/check-balance`, `GET /transaction/recent-transaction` |
 | `/wallet` | Single wallet + create form | `GET /wallet/check-balance`, `POST /wallet/create` |
 | `/transactions` | Paginated deposit/withdraw history | `GET /transaction/recent-transaction` |

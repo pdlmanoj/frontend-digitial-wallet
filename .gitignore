@@ -34,3 +34,5 @@ coverage/
 # Misc
 .vite/
 *.local
+
+digital-wallet-api/
